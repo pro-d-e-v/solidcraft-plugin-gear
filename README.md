@@ -22,6 +22,27 @@ and the geometry and the emitted commands are verified against the current
 engine through its MCP surface. When the host lands, drop the folder from a
 release into your plugins folder and it will run.
 
+## Use it today, before the app's plugin host exists
+
+The installed SolidCraft ships `solidcraft-cli.exe`, which runs the same engine
+the app does. You can drive the plugin's wasm component yourself and replay its
+commands into a real design file:
+
+```sh
+rustup target add wasm32-wasip2
+cargo build --release --target wasm32-wasip2
+
+# Run the component, dump the engine commands for any parameters:
+cargo run --example dump_commands -- gear.json teeth=31 module=3 thickness=12 bore_diameter=10 name=Pinion
+
+# Replay them with the app's own engine and save an openable design:
+"C:\Program Files\SolidCraft\solidcraft-cli.exe" run gear.json --save gear.sc
+```
+
+Open `gear.sc` in SolidCraft: the gear is there, as native sketch and extrude
+features in the timeline, fully undoable. `solidcraft-cli snapshot --in gear.sc
+--out shot.png --view iso` renders it without opening the app.
+
 ## Install (when the plugin host is available)
 
 1. Download `gear-generator-<version>.zip` from the project's

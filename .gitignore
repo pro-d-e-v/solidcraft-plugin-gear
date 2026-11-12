@@ -1,3 +1,5 @@
 /target
 *.wasm
 *.zip
+commands.json
+gear-*.json
