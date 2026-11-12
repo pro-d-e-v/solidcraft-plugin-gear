@@ -1,0 +1,33 @@
+[package]
+name = "solidcraft-plugin-gear"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "A SolidCraft plugin: a parametric involute spur gear generator that emits native engine commands"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The WIT bindings are only needed for the component itself; the plain Rust
+# modules (geometry, command building, manifest) stay testable on the host.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wit-bindgen = "0.63"
+
+# The integration test loads the built component into a real wasmtime and
+# stubs the host imports, so it proves the component is valid and that
+# manifest and execute work end to end.
+[dev-dependencies]
+wasmtime = { version = "50", features = ["component-model"] }
+wasmtime-wasi = "50"
+
+# The component is capped at 16 MiB by the host (RFC 0002, section 3); build small.
+[profile.release]
+lto = true
+opt-level = "z"
+codegen-units = 1
+strip = true

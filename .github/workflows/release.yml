@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+      - name: Test before releasing
+        run: cargo test
+      - name: Build the component
+        run: cargo build --release --target wasm32-wasip2
+      - name: Stage the plugin folder
+        run: |
+          mkdir -p stage/gear-generator
+          cp plugin.json README.md LICENSE stage/gear-generator/
+          cp target/wasm32-wasip2/release/solidcraft_plugin_gear.wasm \
+            stage/gear-generator/gear-generator.wasm
+          cd stage
+          zip -r ../gear-generator-${GITHUB_REF_NAME#v}.zip gear-generator
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            gear-generator-*.zip
+            stage/gear-generator/gear-generator.wasm

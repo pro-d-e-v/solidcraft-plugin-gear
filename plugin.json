@@ -1,0 +1,6 @@
+{
+  "id": "gear-generator",
+  "name": "Gear generator",
+  "version": "0.1.0",
+  "description": "Creates a parametric involute spur gear at the origin: a native sketch and extrude, so the design opens without the plugin."
+}

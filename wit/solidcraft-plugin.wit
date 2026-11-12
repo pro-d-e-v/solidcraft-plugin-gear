@@ -1,0 +1,22 @@
+package solidcraft:plugin@1.0.0;
+
+// The host services a SolidCraft plugin may import (RFC 0002, section 2, phase 1).
+// No files and no network: a phase 1 plugin can only run engine commands.
+world plugin {
+    // Run one engine command: `command` is the command id (as list_commands lists
+    // it, for example "sketch.line"), `args` is its JSON parameters object.
+    // The reply is the command's JSON result, or an error message.
+    import run: func(command: string, args: string) -> result<string, string>;
+
+    // Always available host services.
+    import log: func(message: string);
+    import progress: func(ratio: f64);
+
+    // The plugin's contract as JSON: id, name, version, kind, permissions,
+    // fallback and entries with their input schemas.
+    export manifest: func() -> string;
+
+    // Run the plugin: `params` is the entry's JSON input object. The host runs
+    // the whole execute call as one undo step.
+    export execute: func(params: string) -> result<string, string>;
+}
