@@ -15,10 +15,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip2
+      - name: Build the component first (the integration test loads it)
+        run: cargo build --release --target wasm32-wasip2
       - name: Test before releasing
         run: cargo test
-      - name: Build the component
-        run: cargo build --release --target wasm32-wasip2
       - name: Stage the plugin folder
         run: |
           mkdir -p stage/gear-generator

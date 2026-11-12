@@ -13,11 +13,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-wasip2
+      - name: Build the component first (the integration test loads it)
+        run: cargo build --release --target wasm32-wasip2
       - name: Host tests
         run: cargo test
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Format
         run: cargo fmt --check
-      - name: The component builds for wasm32-wasip2
-        run: cargo build --release --target wasm32-wasip2
