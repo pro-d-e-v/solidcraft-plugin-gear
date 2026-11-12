@@ -1,5 +1,7 @@
 # solidcraft-plugin-gear
 
+![A 20-tooth involute spur gear created by the plugin](docs/gear-iso.png)
+
 A [SolidCraft](https://github.com/tangency-labs/solidcraft) plugin that creates a
 parametric involute spur gear at the origin of a design.
 
