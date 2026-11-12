@@ -52,7 +52,7 @@ fn main() {
     // Any `key=value` arguments override the entry schema's defaults
     // (`teeth=30 module=3` and so on); the first plain argument is the
     // output file.
-    let mut overrides = std::env::args().skip(1).filter(|a| a.contains('='));
+    let overrides = std::env::args().skip(1).filter(|a| a.contains('='));
     let out_path = std::env::args()
         .skip(1)
         .find(|a| !a.contains('=') && a != "--")
