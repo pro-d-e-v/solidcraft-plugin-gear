@@ -4,7 +4,7 @@
 use crate::commands::build_commands;
 use crate::contract::GearInput;
 use crate::gear::{outline, profile_area, volume_estimate, GearSpec, Piece};
-use std::f64::consts::PI;
+use core::f64::consts::PI;
 
 fn default_spec() -> GearSpec {
     GearSpec {

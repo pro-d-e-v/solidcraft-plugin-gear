@@ -1,49 +1,36 @@
-//! The plugin's contract: the JSON `manifest()` export, the input schema and
-//! the parameter validation. Plain Rust, tested on the host target.
+//! The plugin's input schema lives in the static `plugin.json` next to the
+//! component; this module keeps the parameter validation that schema's fields
+//! feed. Plain Rust, tested on the host target.
 
+// The no_std wasm build needs `format!` and `ToString` from alloc; on the
+// host they come from std's prelude, so the import is allowed to be unused.
+#[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
+use alloc::{format, string::String, string::ToString};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::gear::GearSpec;
 
-/// The plugin id. The folder under `{data}/plugins/`, `plugin.json` on disk and
-/// the `manifest()` export all carry it.
+/// The plugin id. The folder under `{data}/plugins/` and `plugin.json` carry it.
 pub const PLUGIN_ID: &str = "gear-generator";
 
-/// The `manifest()` export: the whole contract as JSON.
-///
-/// Field types follow the engine command contracts' field types (`integer`,
-/// `length`, `angle`, `string`) so the host can draw the input form from this
-/// one declaration (RFC 0002, section 2, "Entry inputs should be schemas").
-pub fn manifest_json() -> Value {
+/// The one entry `plugin.json` declares; the host calls `execute` with its name.
+pub const ENTRY_NAME: &str = "gear";
+
+/// The entry's input schema, as `plugin.json` declares it: the same field
+/// names, ranges and defaults [`GearInput`] validates. Kept here so a test can
+/// check the static manifest against the validator.
+pub fn input_schema_json() -> Value {
     json!({
-        "id": PLUGIN_ID,
-        "api_version": "1.0.0",
-        "name": "Gear generator",
-        "version": env!("CARGO_PKG_VERSION"),
-        "description": "Creates a parametric involute spur gear at the origin: a native sketch and extrude, so the design opens without the plugin.",
-        "kind": "command",
-        // Phase 1 grants `run`, `log` and `progress`; nothing else is asked for.
-        "permissions": [],
-        // Every command the plugin emits is a built-in engine command, so a
-        // design made by the plugin opens without it (RFC 0002, section 4).
-        "fallback": "recorded_script",
-        "entries": [
-            {
-                "id": "gear",
-                "label": "Create gear",
-                "effect": "edit",
-                "doc": "Builds a spur gear centred on the origin on the XY plane, extruded towards +Z.",
-                "parameters": [
-                    { "name": "teeth", "type": "integer", "min": 6, "max": 200, "default": 20, "doc": "Number of teeth." },
-                    { "name": "module", "type": "length", "min": 0.5, "max": 20.0, "default": 2.0, "unit": "mm", "doc": "Module: the pitch diameter is module * teeth." },
-                    { "name": "pressure_angle", "type": "angle", "min": 10.0, "max": 30.0, "default": 20.0, "unit": "deg", "doc": "Pressure angle at the pitch circle. The common values are 14.5, 20 and 25." },
-                    { "name": "thickness", "type": "length", "min": 1.0, "max": 300.0, "default": 8.0, "unit": "mm", "doc": "Face width: how far the gear is extruded." },
-                    { "name": "bore_diameter", "type": "length", "min": 0.0, "max": 400.0, "default": 8.0, "unit": "mm", "doc": "Bore diameter, 0 for a gear without a bore." },
-                    { "name": "name", "type": "string", "default": "Gear", "doc": "Name of the sketch, the extrude and the body." }
-                ]
-            }
-        ]
+        "type": "object",
+        "properties": {
+            "teeth": { "type": "integer", "minimum": 6, "maximum": 200, "default": 20, "description": "Number of teeth." },
+            "module": { "type": "number", "minimum": 0.5, "maximum": 20, "default": 2, "description": "Module: the pitch diameter is module * teeth." },
+            "pressure_angle": { "type": "number", "minimum": 10, "maximum": 30, "default": 20, "description": "Pressure angle at the pitch circle. The common values are 14.5, 20 and 25." },
+            "thickness": { "type": "number", "minimum": 1, "maximum": 300, "default": 8, "description": "Face width: how far the gear is extruded." },
+            "bore_diameter": { "type": "number", "minimum": 0, "maximum": 400, "default": 8, "description": "Bore diameter, 0 for a gear without a bore." },
+            "name": { "type": "string", "default": "Gear", "description": "Name of the sketch, the extrude and the body." }
+        }
     })
 }
 

@@ -1,51 +1,77 @@
-//! Runs the built WebAssembly component and writes the engine commands its
-//! `execute` call emits to a JSON file, so the list can be replayed against a
-//! real SolidCraft engine (`solidcraft-cli run` or the MCP `batch` with a
-//! `path`) while the app's own plugin host is not available yet.
+//! Runs the built WebAssembly component on the real plugin host
+//! (`craft-plugin` + `craft-plugin-wasm`, from the SolidCraft repository) and
+//! writes the engine commands its `gear` entry emits to a JSON file, so the
+//! list can be replayed against a real SolidCraft engine (`solidcraft-cli run`
+//! or the MCP `batch` with a `path`).
 //!
 //! ```sh
-//! cargo build --release --target wasm32-wasip2
+//! cargo build --release --target wasm32-unknown-unknown
 //! cargo run --example dump_commands -- default.json
+//! cargo run --example dump_commands -- teeth=30 module=3 gear-30.json
 //! ```
 
+use craft_plugin::{parse_manifest, CommandSchema, Effect, FileGrant, PluginHost, Result};
 use serde_json::{json, Value};
-use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
-use wasmtime::{Config, Engine, Store};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-wasmtime::component::bindgen!({
-    world: "plugin",
-    path: "wit/solidcraft-plugin.wit",
-});
-
-/// Records what the plugin asked the host to do.
+/// A stub host: every engine command succeeds and is recorded.
 struct Recorder {
     commands: Vec<(String, Value)>,
-    table: ResourceTable,
-    wasi: WasiCtx,
 }
 
-impl WasiView for Recorder {
-    fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView {
-            ctx: &mut self.wasi,
-            table: &mut self.table,
-        }
+impl PluginHost for Recorder {
+    fn command_catalog(&self) -> Vec<CommandSchema> {
+        // The manifest's declared commands, all of which the catalog serves.
+        std::fs::read(manifest_path())
+            .ok()
+            .and_then(|bytes| parse_manifest(&bytes, "gear-generator").ok())
+            .map(|manifest| {
+                manifest
+                    .runtime
+                    .expect("runtime")
+                    .commands
+                    .iter()
+                    .map(|name| CommandSchema {
+                        name: name.clone(),
+                        input_schema: json!({}),
+                        output_schema: json!({}),
+                        effect: Effect::Edit,
+                        group: None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
-}
 
-impl PluginImports for Recorder {
-    fn run(&mut self, command: String, args: String) -> Result<String, String> {
-        let args: Value = serde_json::from_str(&args).unwrap_or_else(|_| json!({}));
-        self.commands.push((command, args));
-        Ok(json!({ "ok": true }).to_string())
+    fn run_command(&mut self, name: &str, args: &Value) -> Result<Value> {
+        self.commands.push((name.to_string(), args.clone()));
+        Ok(json!({}))
     }
 
-    fn log(&mut self, message: String) {
+    fn begin_transaction(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn commit_transaction(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn rollback_transaction(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn granted_folders(&self) -> Vec<FileGrant> {
+        Vec::new()
+    }
+
+    fn log(&mut self, message: &str) {
         println!("plugin log: {message}");
     }
 
-    fn progress(&mut self, _ratio: f64) {}
+    fn progress(&mut self, _fraction: f32, _message: &str) {}
+}
+
+fn manifest_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("plugin.json")
 }
 
 fn main() {
@@ -58,44 +84,35 @@ fn main() {
         .find(|a| !a.contains('=') && a != "--")
         .unwrap_or_else(|| "commands.json".to_string());
 
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("target/wasm32-wasip2/release/solidcraft_plugin_gear.wasm");
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("the component is missing ({path:?}): build it first: {e}"));
-
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    let engine = Engine::new(&config).unwrap();
-    let component = Component::from_binary(&engine, &bytes).unwrap();
-
-    let mut store = Store::new(
-        &engine,
-        Recorder {
-            commands: Vec::new(),
-            table: ResourceTable::new(),
-            wasi: WasiCtxBuilder::new().build(),
-        },
-    );
-    let mut linker: Linker<Recorder> = Linker::new(&engine);
-    wasmtime_wasi::p2::add_to_linker_sync(&mut linker).unwrap();
-    Plugin::add_to_linker::<Recorder, HasSelf<Recorder>>(&mut linker, |state| state).unwrap();
-    let instance = Plugin::instantiate(&mut store, &component, &linker).unwrap();
-
-    let manifest: Value =
-        serde_json::from_str(&instance.call_manifest(&mut store).unwrap()).unwrap();
+    let manifest_bytes =
+        std::fs::read(manifest_path()).unwrap_or_else(|e| panic!("plugin.json is missing: {e}"));
+    let manifest = parse_manifest(&manifest_bytes, "gear-generator")
+        .unwrap_or_else(|e| panic!("the host refuses our manifest: {e:?}"));
     println!(
-        "manifest: {} v{}, entry {:?}",
-        manifest["id"], manifest["version"], manifest["entries"][0]["id"]
+        "manifest: {} v{}, entry {:?}, capabilities {:?}",
+        manifest.id,
+        manifest.version,
+        manifest.runtime.as_ref().expect("runtime").entries[0].name,
+        manifest.capabilities
     );
+
+    let wasm_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target/wasm32-unknown-unknown/release/solidcraft_plugin_gear.wasm");
+    let module = std::fs::read(&wasm_path).unwrap_or_else(|e| {
+        panic!("the core module is missing ({wasm_path:?}): build it first: {e}")
+    });
+    let bytes = wit_component::ComponentEncoder::default()
+        .validate(true)
+        .module(&module)
+        .and_then(|mut encoder| encoder.encode())
+        .unwrap_or_else(|e| panic!("the core module does not lift into a component: {e}"));
 
     // The defaults from the manifest's entry schema, overridden by any
     // `key=value` arguments (`teeth=30 module=3` and so on).
+    let schema = &manifest.runtime.as_ref().expect("runtime").entries[0].input_schema;
     let mut params = serde_json::Map::new();
-    for parameter in manifest["entries"][0]["parameters"].as_array().unwrap() {
-        params.insert(
-            parameter["name"].as_str().unwrap().to_string(),
-            parameter["default"].clone(),
-        );
+    for (name, property) in schema["properties"].as_object().expect("schema properties") {
+        params.insert(name.clone(), property["default"].clone());
     }
     for argument in overrides {
         if let Some((key, value)) = argument.split_once('=') {
@@ -108,20 +125,22 @@ fn main() {
         }
     }
 
-    let summary: Value = serde_json::from_str(
-        &instance
-            .call_execute(&mut store, &Value::Object(params).to_string())
-            .unwrap()
-            .unwrap(),
-    )
-    .unwrap();
+    let (host, result) = craft_plugin_wasm::run(
+        Recorder {
+            commands: Vec::new(),
+        },
+        &manifest,
+        &bytes,
+        "gear",
+        &Value::Object(params),
+    );
+    let summary = result.unwrap_or_else(|e| panic!("the run failed: {e:?}"));
     println!(
         "summary: {}",
         serde_json::to_string_pretty(&summary).unwrap()
     );
 
-    let steps: Vec<Value> = store
-        .data()
+    let steps: Vec<Value> = host
         .commands
         .iter()
         .map(|(command, params)| json!({ "command": command, "params": params }))

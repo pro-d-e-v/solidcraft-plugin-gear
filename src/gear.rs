@@ -6,7 +6,8 @@
 //! root circle sits below the base circle) and arcs (tooth tips and roots on
 //! the tip and root circles, both centred on the gear axis).
 
-use std::f64::consts::PI;
+use alloc::{string::String, vec::Vec};
+use core::f64::consts::PI;
 
 /// A validated gear, ready to be turned into engine commands.
 #[derive(Clone, Debug, PartialEq)]

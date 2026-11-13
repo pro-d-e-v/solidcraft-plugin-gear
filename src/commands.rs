@@ -1,5 +1,9 @@
 //! Turning a validated gear into the engine commands the host runs.
 
+// The no_std wasm build needs `format!` and `ToString` from alloc; on the
+// host they come from std's prelude, so the import is allowed to be unused.
+#[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
+use alloc::{format, string::ToString, vec::Vec};
 use serde_json::{json, Value};
 
 use crate::gear::{outline, GearSpec, Piece};

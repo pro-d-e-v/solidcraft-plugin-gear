@@ -5,22 +5,25 @@
 A [SolidCraft](https://github.com/tangency-labs/solidcraft) plugin that creates a
 parametric involute spur gear at the origin of a design.
 
-The plugin is a WebAssembly component against the plugin contract set out in
-[RFC 0002](https://github.com/tangency-labs/solidcraft/blob/main/docs/rfcs/0002-plugins.md)
-(world `solidcraft:plugin@1.0.0`). It changes the model only through the engine
-commands the app already serves over MCP (`sketch.line`,
-`sketch.arc.center_point`, `sketch.circle.center`, `solid.extrude`), so every
-edit is undoable and journaled, and a design the plugin made **opens without the
-plugin installed**.
+The plugin is a WebAssembly component against the plugin contract the merged
+SolidCraft host serves: world `craft:plugin@0.1.0`, capability
+`commands@0.1` (phase 1 of
+[RFC 0002](https://github.com/tangency-labs/solidcraft/blob/main/docs/rfcs/0002-plugins.md),
+merged in [#15112](https://github.com/tangency-labs/solidcraft/pull/15112)). It
+changes the model only through the engine commands the app already serves over
+MCP (`sketch.line`, `sketch.arc.center_point`, `sketch.circle.center`,
+`solid.extrude`), so every edit is undoable and journaled, and a design the
+plugin made **opens without the plugin installed**.
 
 ## Status
 
-SolidCraft today lists installed plugins under Preferences › Plugins but does
-not run them yet: the wasm host is phase 1 of RFC 0002. This plugin is ready for
-that host — the manifest, the WIT world and the command emission follow the RFC,
-and the geometry and the emitted commands are verified against the current
-engine through its MCP surface. When the host lands, drop the folder from a
-release into your plugins folder and it will run.
+SolidCraft merged the phase 1 wasm host (PR #15112). This plugin is ported to
+that contract: its static manifest is parsed by `craft-plugin`, and the tests
+run the component through the real `craft-plugin-wasm` sandbox (fresh instance,
+fuel, transaction commit and rollback). The geometry and the emitted commands
+are verified against the current engine through its MCP surface. When a
+SolidCraft release ships the host, drop the folder from a release into your
+plugins folder and it will run. Until then, use the CLI route below.
 
 ## Use it today, before the app's plugin host exists
 
@@ -29,10 +32,10 @@ the app does. You can drive the plugin's wasm component yourself and replay its
 commands into a real design file:
 
 ```sh
-rustup target add wasm32-wasip2
-cargo build --release --target wasm32-wasip2
+rustup target add wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown
 
-# Run the component, dump the engine commands for any parameters:
+# Run the component on the real plugin host, dump the engine commands for any parameters:
 cargo run --example dump_commands -- gear.json teeth=31 module=3 thickness=12 bore_diameter=10 name=Pinion
 
 # Replay them with the app's own engine and save an openable design:
@@ -86,9 +89,12 @@ agent or the host can check the result with `measure`.
 ## Build from source
 
 ```sh
-rustup target add wasm32-wasip2
-cargo build --release --target wasm32-wasip2
-# target/wasm32-wasip2/release/solidcraft_plugin_gear.wasm -> gear-generator.wasm
+rustup target add wasm32-unknown-unknown
+cargo build --release --target wasm32-unknown-unknown
+# target/wasm32-unknown-unknown/release/solidcraft_plugin_gear.wasm is a core
+# module carrying component metadata; lift it into the component:
+wasm-tools component new target/wasm32-unknown-unknown/release/solidcraft_plugin_gear.wasm \
+  -o gear-generator/gear-generator.wasm
 ```
 
 Then stage the folder:
@@ -96,7 +102,8 @@ Then stage the folder:
 ```sh
 mkdir -p gear-generator
 cp plugin.json README.md gear-generator/
-cp target/wasm32-wasip2/release/solidcraft_plugin_gear.wasm gear-generator/gear-generator.wasm
+wasm-tools component new target/wasm32-unknown-unknown/release/solidcraft_plugin_gear.wasm \
+  -o gear-generator/gear-generator.wasm
 ```
 
 Run the tests on the host target:
@@ -110,13 +117,14 @@ cargo clippy --all-targets -- -D warnings
 
 | Path | What it is |
 |---|---|
-| `plugin.json` | The manifest on disk, the four fields the app's Preferences › Plugins page reads today |
-| `wit/solidcraft-plugin.wit` | The plugin world (RFC 0002, section 2): `run`, `log`, `progress` in; `manifest`, `execute` out |
+| `plugin.json` | The manifest: metadata, the `commands@0.1` capability, the runtime block (module, entries with input schemas, declared commands) |
+| `wit/plugin.wit` | The plugin world `craft:plugin@0.1.0` the merged host serves |
 | `src/gear.rs` | Involute geometry: radii, the closed outline, area and volume estimates |
-| `src/contract.rs` | The `manifest()` JSON and the input validation |
+| `src/contract.rs` | The entry's input schema and the input validation |
 | `src/commands.rs` | The engine command list the plugin emits and the result summary |
 | `src/lib.rs` | The WIT bindings and the `execute` loop |
 | `src/tests.rs` | Unit tests, including volume checks against values the real engine measured |
+| `tests/host.rs` | The component run through the real `craft-plugin`/`craft-plugin-wasm` host |
 
 ## License
 

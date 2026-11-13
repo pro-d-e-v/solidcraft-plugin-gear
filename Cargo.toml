@@ -1,6 +1,6 @@
 [package]
 name = "solidcraft-plugin-gear"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "A SolidCraft plugin: a parametric involute spur gear generator that emits native engine commands"
@@ -10,24 +10,32 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# alloc only, on every target: the wasm component builds no_std and the host
+# never needs more than `from_str` and `to_string`.
+serde = { version = "1", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 # The WIT bindings are only needed for the component itself; the plain Rust
 # modules (geometry, command building, manifest) stay testable on the host.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wit-bindgen = "0.63"
 
-# The integration test loads the built component into a real wasmtime and
-# stubs the host imports, so it proves the component is valid and that
-# manifest and execute work end to end.
+# The integration test runs the built component on the real, merged plugin
+# host: `craft-plugin` (manifest, permissions, limits) and `craft-plugin-wasm`
+# (the wasmtime sandbox), both from the SolidCraft repository's main branch.
 [dev-dependencies]
-wasmtime = { version = "50", features = ["component-model"] }
-wasmtime-wasi = "50"
+craft-plugin = { git = "https://github.com/tangency-labs/solidcraft" }
+craft-plugin-wasm = { git = "https://github.com/tangency-labs/solidcraft" }
+# The wasm32-unknown-unknown build is a core module carrying component
+# metadata; these lift it into a real component the host can load.
+wit-component = "0.254"
 
-# The component is capped at 16 MiB by the host (RFC 0002, section 3); build small.
+# The component is capped at 16 MiB by the host; build small. `panic = "abort"`
+# and the alloc-only serde stack keep the component import-free of anything but
+# the WIT, which is what the host serves.
 [profile.release]
 lto = true
 opt-level = "z"
 codegen-units = 1
 strip = true
+panic = "abort"
