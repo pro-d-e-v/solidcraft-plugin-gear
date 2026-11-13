@@ -1,8 +1,8 @@
 {
   "id": "gear-generator",
-  "name": "Gear generator",
-  "version": "0.2.0",
-  "description": "Creates a parametric involute spur gear at the origin: a native sketch and extrude, so the design opens without the plugin.",
+  "name": "Генератор шестерён",
+  "version": "0.3.0",
+  "description": "Создаёт эвольвентную цилиндрическую шестерню в начале координат: обычный эскиз и выдавливание, дизайн открывается без плагина.",
   "capabilities": ["commands@0.1"],
   "runtime": {
     "module": "gear-generator.wasm",
@@ -10,15 +10,21 @@
       {
         "name": "gear",
         "effect": "edit",
+        "slots": [{ "kind": "menu", "name": "Создать шестерню…" }],
         "input_schema": {
           "type": "object",
+          "required": ["teeth", "module", "pressure_angle", "thickness", "bore_diameter", "keyway", "keyway_width", "keyway_depth", "keyway_angle", "name"],
           "properties": {
-            "teeth": { "type": "integer", "minimum": 6, "maximum": 200, "default": 20, "description": "Number of teeth." },
-            "module": { "type": "number", "minimum": 0.5, "maximum": 20, "default": 2, "description": "Module: the pitch diameter is module * teeth." },
-            "pressure_angle": { "type": "number", "minimum": 10, "maximum": 30, "default": 20, "description": "Pressure angle at the pitch circle. The common values are 14.5, 20 and 25." },
-            "thickness": { "type": "number", "minimum": 1, "maximum": 300, "default": 8, "description": "Face width: how far the gear is extruded." },
-            "bore_diameter": { "type": "number", "minimum": 0, "maximum": 400, "default": 8, "description": "Bore diameter, 0 for a gear without a bore." },
-            "name": { "type": "string", "default": "Gear", "description": "Name of the sketch, the extrude and the body." }
+            "teeth": { "type": "integer", "minimum": 6, "maximum": 200, "default": 20, "title": "Число зубьев", "description": "Сколько зубьев на шестерне." },
+            "module": { "type": "number", "minimum": 0.5, "maximum": 20, "default": 2, "unit": "мм", "title": "Модуль", "description": "Модуль: делительный диаметр равен модуль × число зубьев." },
+            "pressure_angle": { "type": "number", "minimum": 10, "maximum": 30, "default": 20, "unit": "°", "title": "Угол зацепления", "description": "Угол зацепления на делительной окружности. Обычные значения: 14.5, 20 и 25." },
+            "thickness": { "type": "number", "minimum": 1, "maximum": 300, "default": 8, "unit": "мм", "title": "Толщина венца", "description": "Ширина венца: на сколько выдавливается шестерня." },
+            "bore_diameter": { "type": "number", "minimum": 0, "maximum": 400, "default": 8, "unit": "мм", "title": "Диаметр отверстия", "description": "Диаметр центрального отверстия, 0 — без отверстия." },
+            "keyway": { "type": "boolean", "default": false, "title": "Шпоночный паз", "description": "Прорезать паз под шпонку в отверстии (нужно отверстие)." },
+            "keyway_width": { "type": "number", "minimum": 0.5, "maximum": 50, "default": 4, "unit": "мм", "title": "Ширина шпонки", "description": "Ширина паза; должна быть меньше диаметра отверстия." },
+            "keyway_depth": { "type": "number", "minimum": 0.5, "maximum": 100, "default": 2, "unit": "мм", "title": "Глубина паза", "description": "Насколько паз уходит в материал от края отверстия; не должен прорезать зубья." },
+            "keyway_angle": { "type": "number", "minimum": -360, "maximum": 360, "default": 0, "unit": "°", "title": "Положение паза", "description": "Угол, куда смотрит паз (0 — вдоль +X)." },
+            "name": { "type": "string", "default": "Gear", "minLength": 1, "maxLength": 64, "title": "Имя", "description": "Имя эскиза, выдавливания и тела." }
           }
         }
       }

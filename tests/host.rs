@@ -141,11 +141,60 @@ fn default_params() -> Value {
     })
 }
 
+/// The manifest's menu slot names the entry the way the user sees it.
+#[test]
+fn the_entry_carries_a_menu_slot() {
+    let manifest = parsed_manifest();
+    let entry = &manifest.runtime.expect("runtime").entries[0];
+    let slot = &entry.slots[0];
+    let slot = serde_json::to_value(slot).unwrap_or_default();
+    assert_eq!(slot["kind"], "menu");
+    assert_eq!(slot["name"], "Создать шестерню…");
+}
+
+/// With the keyway on, the cut sketch and extrude follow the main extrude.
+#[test]
+fn the_keyway_cut_runs_after_the_gear() {
+    let manifest = parsed_manifest();
+    let mut params = default_params();
+    params["keyway"] = json!(true);
+    params["keyway_width"] = json!(4.0);
+    params["keyway_depth"] = json!(2.0);
+    params["keyway_angle"] = json!(30.0);
+    let (host, result) = craft_plugin_wasm::run(
+        StubHost::new(None),
+        &manifest,
+        &component_bytes(),
+        "gear",
+        &params,
+    );
+    let summary = result.unwrap_or_else(|e| panic!("the run failed: {e:?}"));
+    assert_eq!(summary["commands_run"], 88);
+    assert_eq!(summary["keyway"]["width_mm"], 4.0);
+    assert_eq!(summary["keyway"]["angle_deg"], 30.0);
+
+    // The last four commands: sketch.create, the closed slot line, finish,
+    // the cut extrude.
+    let ran = &host.commands;
+    assert_eq!(ran[ran.len() - 4].0, "sketch.create");
+    let slot = &ran[ran.len() - 3];
+    assert_eq!(slot.0, "sketch.line");
+    let points = slot.1["points"].as_array().expect("points");
+    assert_eq!(points.len(), 5);
+    assert_eq!(ran[ran.len() - 2].0, "sketch.finish");
+    let cut = &ran[ran.len() - 1];
+    assert_eq!(cut.0, "solid.extrude");
+    assert_eq!(cut.1["operation"], "cut");
+    assert_eq!(cut.1["through_all"], true);
+    assert_eq!(cut.1["targets"], json!(["Gear"]));
+    assert!(host.committed);
+}
+
 #[test]
 fn the_merged_host_accepts_the_static_manifest() {
     let manifest = parsed_manifest();
     assert_eq!(manifest.id, "gear-generator");
-    assert_eq!(manifest.version, "0.2.0");
+    assert_eq!(manifest.version, "0.3.0");
     assert_eq!(manifest.capabilities, vec!["commands@0.1".to_string()]);
     let runtime = manifest.runtime.expect("the manifest declares a runtime");
     assert_eq!(runtime.module, "gear-generator.wasm");

@@ -17,15 +17,17 @@ plugin made **opens without the plugin installed**.
 
 ## Status
 
-SolidCraft merged the phase 1 wasm host (PR #15112). This plugin is ported to
-that contract: its static manifest is parsed by `craft-plugin`, and the tests
-run the component through the real `craft-plugin-wasm` sandbox (fresh instance,
-fuel, transaction commit and rollback). The geometry and the emitted commands
-are verified against the current engine through its MCP surface. When a
-SolidCraft release ships the host, drop the folder from a release into your
-plugins folder and it will run. Until then, use the CLI route below.
+SolidCraft 0.41.0 ships the phase 1 wasm host (PR #15112), and this plugin runs
+in it: install the release zip, and **Plugins › Создать шестерню…** opens the
+parameter dialog. The plugin's static manifest is parsed by `craft-plugin`, and
+the tests run the component through the real `craft-plugin-wasm` sandbox (fresh
+instance, fuel, transaction commit and rollback). The geometry and the emitted
+commands are verified against the current engine through its MCP surface.
 
-## Use it today, before the app's plugin host exists
+The plugin's UI is in Russian: the menu entry, the field labels, units and
+descriptions all come from the manifest's schema, which the host draws.
+
+## Use it from the CLI
 
 The installed SolidCraft ships `solidcraft-cli.exe`, which runs the same engine
 the app does. You can drive the plugin's wasm component yourself and replay its
@@ -46,11 +48,13 @@ Open `gear.sc` in SolidCraft: the gear is there, as native sketch and extrude
 features in the timeline, fully undoable. `solidcraft-cli snapshot --in gear.sc
 --out shot.png --view iso` renders it without opening the app.
 
-## Install (when the plugin host is available)
+## Install
 
 1. Download `gear-generator-<version>.zip` from the project's
-   [releases](../../releases) (or build it from source, see below).
-2. Unpack it into the plugins folder:
+   [releases](../../releases) — from the **Assets** section, not the
+   "Source code (zip)" link, which holds the repository, not the plugin.
+2. In SolidCraft open **Preferences › Plugins** and use **Install plugin…**,
+   or unpack the zip into the plugins folder:
 
    | System | Plugins folder |
    |---|---|
@@ -59,7 +63,11 @@ features in the timeline, fully undoable. `solidcraft-cli snapshot --in gear.sc
    | Linux | `~/.local/share/solidcraft/plugins/gear-generator/` |
 
    The folder must hold `plugin.json` and `gear-generator.wasm`.
-3. Restart SolidCraft. The plugin appears under Preferences › Plugins.
+3. Restart SolidCraft if you unpacked by hand. The plugin appears under
+   Preferences › Plugins, and its entry in the Plugins menu.
+
+Installing a newer version over an older one asks for confirmation, because the
+plugin id is the same.
 
 ## Parameters
 
@@ -70,6 +78,10 @@ features in the timeline, fully undoable. `solidcraft-cli snapshot --in gear.sc
 | `pressure_angle` | 10° – 30° | 20° | At the pitch circle (14.5°, 20° and 25° are the common values) |
 | `thickness` | 1 – 300 mm | 8 mm | Face width (extrude distance) |
 | `bore_diameter` | 0 – 400 mm | 8 mm | Centre bore, 0 for none; must leave a rim |
+| `keyway` | on/off | off | Cut a keyway slot in the bore (needs a bore) |
+| `keyway_width` | 0.5 mm – bore diameter | 4 mm | Slot width |
+| `keyway_depth` | 0.5 mm – bore radius | 2 mm | How far the slot reaches past the bore edge; its corners must stay under the root circle |
+| `keyway_angle` | −360° – 360° | 0° | Where the slot points (0° is +X) |
 | `name` | 1 – 64 chars | `Gear` | Name of the sketch, the extrude and the body |
 
 The gear is centred on the origin on the XY plane and extruded towards +Z.
@@ -77,14 +89,21 @@ Above the root circle each flank is a 12-piece involute approximation; below
 the base circle (gears under about 17 teeth) it is a straight radial line, the
 standard simplified profile. Root fillets and undercut trimming are not modelled.
 
+The keyway is a rectangle from the bore's centre out to `bore radius + depth`,
+`width` wide, rotated by `keyway_angle`, cut through the whole face width. The
+cut names the gear body as its target, so it never touches other bodies in the
+design.
+
 ## What the plugin emits
 
 One `sketch.create`, then per tooth: the two flanks as polylines, the tip arc on
 the tip circle and the root arc on the root circle, then the bore circle, then
 `sketch.finish` and one `solid.extrude`. For 20 teeth that is 84 engine
-commands in one undo step, and the summary the plugin returns carries the
-pitch, tip and root diameters, a volume estimate and the bounding box, so an
-agent or the host can check the result with `measure`.
+commands in one undo step. With the keyway on, four more follow: a second
+sketch, the closed slot rectangle, `sketch.finish` and a cut-through-all
+extrude. The summary the plugin returns carries the pitch, tip and root
+diameters, the keyway, a volume estimate and the bounding box, so an agent or
+the host can check the result with `measure`.
 
 ## Build from source
 

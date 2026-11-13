@@ -3,10 +3,10 @@
 // The no_std wasm build needs `format!` and `ToString` from alloc; on the
 // host they come from std's prelude, so the import is allowed to be unused.
 #[cfg_attr(not(target_arch = "wasm32"), allow(unused_imports))]
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, string::ToString, vec, vec::Vec};
 use serde_json::{json, Value};
 
-use crate::gear::{outline, GearSpec, Piece};
+use crate::gear::{outline, GearSpec, KeywaySpec, Piece};
 
 /// Round to 6 decimals: exact to a nanometre, and keeps the JSON small.
 fn r6(x: f64) -> f64 {
@@ -58,9 +58,53 @@ pub fn build_commands(spec: &GearSpec) -> Vec<Value> {
     commands.push(json!({ "command": "sketch.finish", "params": {} }));
     commands.push(json!({
         "command": "solid.extrude",
-        "params": { "distance": spec.thickness_mm, "name": spec.name }
+        "params": { "distance": spec.thickness_mm, "name": spec.name, "body_name": spec.name }
     }));
+
+    if let Some(keyway) = &spec.keyway {
+        // The keyway slot: a separate sketch on the same plane, then a cut
+        // through everything. The slot runs from the bore's centre out past
+        // the bore radius, so its visible part is exactly the keyway.
+        let slot = keyway_rectangle(spec, keyway);
+        commands.push(json!({
+            "command": "sketch.create",
+            "params": { "plane": "XY", "name": format!("{} keyway", spec.name) }
+        }));
+        let points: Vec<[f64; 2]> = slot.iter().map(|p| [r6(p[0]), r6(p[1])]).collect();
+        commands.push(json!({
+            "command": "sketch.line",
+            "params": { "points": points }
+        }));
+        commands.push(json!({ "command": "sketch.finish", "params": {} }));
+        // The cut names its target: only the gear body is cut, never the rest
+        // of a design the plugin ran into.
+        commands.push(json!({
+            "command": "solid.extrude",
+            "params": { "operation": "cut", "through_all": true, "name": "Keyway", "targets": [spec.name] }
+        }));
+    }
     commands
+}
+
+/// The keyway slot rectangle's corners, closed: four distinct corners, the
+/// last one repeats the first. Rotation by the slot's angle keeps the area and
+/// the depths.
+fn keyway_rectangle(spec: &GearSpec, keyway: &KeywaySpec) -> Vec<[f64; 2]> {
+    let r_bore = spec.bore_diameter_mm / 2.0;
+    let half_w = keyway.width_mm / 2.0;
+    let far = r_bore + keyway.depth_mm;
+    let angle = keyway.angle_deg.to_radians();
+    let rot = |x: f64, y: f64| -> [f64; 2] {
+        let (s, c) = angle.sin_cos();
+        [x * c - y * s, x * s + y * c]
+    };
+    vec![
+        rot(0.0, -half_w),
+        rot(far, -half_w),
+        rot(far, half_w),
+        rot(0.0, half_w),
+        rot(0.0, -half_w),
+    ]
 }
 
 /// The JSON summary `execute` returns after every command ran.
@@ -78,6 +122,14 @@ pub fn summary_json(spec: &GearSpec, command_count: usize) -> Value {
         "pitch_diameter_mm": spec.pitch_radius() * 2.0,
         "tip_diameter_mm": spec.tip_radius() * 2.0,
         "root_diameter_mm": spec.root_radius() * 2.0,
+        "keyway": match &spec.keyway {
+            None => serde_json::Value::Null,
+            Some(keyway) => json!({
+                "width_mm": keyway.width_mm,
+                "depth_mm": keyway.depth_mm,
+                "angle_deg": keyway.angle_deg
+            }),
+        },
         "volume_estimate_mm3": crate::gear::volume_estimate(spec),
         "body": spec.name,
         "bbox_mm": {

@@ -3,8 +3,9 @@
 
 use crate::commands::build_commands;
 use crate::contract::GearInput;
-use crate::gear::{outline, profile_area, volume_estimate, GearSpec, Piece};
+use crate::gear::{outline, profile_area, volume_estimate, GearSpec, KeywaySpec, Piece};
 use core::f64::consts::PI;
+use serde_json::json;
 
 fn default_spec() -> GearSpec {
     GearSpec {
@@ -13,6 +14,7 @@ fn default_spec() -> GearSpec {
         pressure_angle_deg: 20.0,
         thickness_mm: 8.0,
         bore_diameter_mm: 8.0,
+        keyway: None,
         name: "Gear".to_string(),
     }
 }
@@ -191,6 +193,10 @@ fn validation_refuses_bad_inputs() {
         pressure_angle_deg: 20.0,
         thickness: 8.0,
         bore_diameter: 8.0,
+        keyway: false,
+        keyway_width: 4.0,
+        keyway_depth: 2.0,
+        keyway_angle: 0.0,
         name: "Gear".to_string(),
     };
 
@@ -229,4 +235,153 @@ fn validation_refuses_bad_inputs() {
 
     // A good input round-trips.
     assert!(base.validate().is_ok());
+}
+
+/// The strip integral the keyway estimate uses, checked against a direct
+/// numeric sample of the removed area.
+#[test]
+fn keyway_area_matches_the_numeric_strip_integral() {
+    let keyway = KeywaySpec {
+        width_mm: 4.0,
+        depth_mm: 2.0,
+        angle_deg: 0.0,
+    };
+    let r = 4.0; // bore diameter 8
+    let x1 = r + keyway.depth_mm;
+    let steps = 200_000;
+    let dx = x1 / steps as f64;
+    let mut numeric = 0.0;
+    for i in 0..steps {
+        let x = (i as f64 + 0.5) * dx;
+        let removed = if x >= r {
+            keyway.width_mm
+        } else {
+            let chord = 2.0 * (r * r - x * x).sqrt();
+            (keyway.width_mm - chord).max(0.0)
+        };
+        numeric += removed * dx;
+    }
+    let analytic = keyway.area_outside_bore(2.0 * r);
+    assert!(
+        (numeric - analytic).abs() / numeric < 1.0e-3,
+        "analytic {analytic} vs numeric {numeric}"
+    );
+}
+
+/// With the keyway off, the command list and the volume stay exactly as they
+/// were in 0.2.0.
+#[test]
+fn keyway_off_changes_nothing() {
+    let mut with = default_spec();
+    with.keyway = Some(KeywaySpec {
+        width_mm: 4.0,
+        depth_mm: 2.0,
+        angle_deg: 0.0,
+    });
+    let without = default_spec();
+    assert!(without.keyway.is_none());
+    assert_eq!(
+        build_commands(&with).len(),
+        build_commands(&without).len() + 4
+    );
+
+    let base = volume_estimate(&without);
+    let removed = base - volume_estimate(&with);
+    // The slot is about 4 mm wide and 2 mm deep past the circle edge, times
+    // the 8 mm thickness: roughly 80 mm³, well under the gear's ~9400 mm³.
+    assert!(removed > 40.0 && removed < 120.0, "removed {removed}");
+}
+
+/// The keyway's extra commands: a sketch, the closed slot rectangle, a
+/// finish and a cut-through-all extrude.
+#[test]
+fn keyway_commands_shape() {
+    let mut spec = default_spec();
+    spec.keyway = Some(KeywaySpec {
+        width_mm: 4.0,
+        depth_mm: 2.0,
+        angle_deg: 30.0,
+    });
+    let commands = build_commands(&spec);
+    assert_eq!(commands.len(), 84 + 4);
+
+    // The slot's second corner sits at bore radius + depth, half a width
+    // below the centre line, rotated 30°.
+    let slot = &commands[84 + 1];
+    assert_eq!(slot["command"], "sketch.line");
+    let points = slot["params"]["points"].as_array().expect("points");
+    assert_eq!(points.len(), 5); // four corners, closed
+    let far = 4.0 + 2.0;
+    let angle = 30.0f64.to_radians();
+    let (s, c) = angle.sin_cos();
+    let expected = [far * c - (-2.0) * s, far * s + (-2.0) * c];
+    let second = points[1].as_array().unwrap();
+    assert!((second[0].as_f64().unwrap() - expected[0]).abs() < 1.0e-5);
+    assert!((second[1].as_f64().unwrap() - expected[1]).abs() < 1.0e-5);
+
+    // The cut goes through everything, and only through the gear's body.
+    let cut = commands.last().unwrap();
+    assert_eq!(cut["command"], "solid.extrude");
+    assert_eq!(cut["params"]["operation"], "cut");
+    assert_eq!(cut["params"]["through_all"], true);
+    assert_eq!(cut["params"]["targets"], json!(["Gear"]));
+}
+
+#[test]
+fn validation_refuses_broken_keyways() {
+    let base = GearInput {
+        teeth: 20,
+        module: 2.0,
+        pressure_angle_deg: 20.0,
+        thickness: 8.0,
+        bore_diameter: 8.0,
+        keyway: true,
+        keyway_width: 4.0,
+        keyway_depth: 2.0,
+        keyway_angle: 0.0,
+        name: "Gear".to_string(),
+    };
+    assert!(base.validate().is_ok());
+
+    // A keyway without a bore.
+    let no_bore = GearInput {
+        bore_diameter: 0.0,
+        ..base.clone()
+    };
+    assert!(no_bore
+        .validate()
+        .unwrap_err()
+        .contains("the keyway needs a bore"));
+
+    // A slot wider than the bore.
+    let too_wide = GearInput {
+        keyway_width: 10.0,
+        ..base.clone()
+    };
+    assert!(too_wide
+        .validate()
+        .unwrap_err()
+        .contains("keyway width must be from 0.5 mm and under the bore"));
+
+    // A slot so deep its corners break through the teeth: the corners reach
+    // sqrt((r_bore + d)² + (w/2)²), which must stay under the root radius
+    // 17.5 mm; d = 14 crosses it.
+    let too_deep = GearInput {
+        keyway_depth: 14.0,
+        ..base.clone()
+    };
+    assert!(too_deep
+        .validate()
+        .unwrap_err()
+        .contains("cuts through the gear"));
+
+    // A wild angle.
+    let bad_angle = GearInput {
+        keyway_angle: 500.0,
+        ..base.clone()
+    };
+    assert!(bad_angle
+        .validate()
+        .unwrap_err()
+        .contains("`keyway_angle` must be between -360 and 360"));
 }

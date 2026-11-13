@@ -22,8 +22,51 @@ pub struct GearSpec {
     pub thickness_mm: f64,
     /// Bore diameter in mm; 0 means no bore.
     pub bore_diameter_mm: f64,
+    /// The keyway slot, when asked for.
+    pub keyway: Option<KeywaySpec>,
     /// Name of the sketch, the extrude and the body.
     pub name: String,
+}
+
+/// A keyway slot in the bore: a rectangle from the bore's centre out to
+/// `depth_mm` past the bore radius, `width_mm` wide, pointing at
+/// `angle_deg` (0 is +X). Cut through the whole face width.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KeywaySpec {
+    /// The slot's width in mm.
+    pub width_mm: f64,
+    /// How far past the bore radius the slot reaches, in mm.
+    pub depth_mm: f64,
+    /// Where the slot points, in degrees; 0 is +X.
+    pub angle_deg: f64,
+}
+
+impl KeywaySpec {
+    /// The area the slot cuts beyond the bore circle: the part of the slot
+    /// rectangle that lies outside the bore. Inside the bore there is nothing
+    /// to cut, so only this matters to the volume.
+    ///
+    /// The slot spans `0 ≤ x ≤ r_bore + d` with `|y| ≤ w/2` (rotating it keeps
+    /// the area). Over `[0, x_c]` with `x_c = sqrt(r² − (w/2)²)` the rectangle
+    /// stays inside the circle and cuts nothing; past `x_c` up to the circle's
+    /// edge the removed strip is `w − 2·sqrt(r² − x²)` wide; past `r` it is
+    /// `w`. The strip integral has a closed form through
+    /// `∫ sqrt(r² − x²) dx = x·sqrt(r² − x²)/2 + r²·asin(x/r)/2`.
+    pub fn area_outside_bore(&self, bore_diameter_mm: f64) -> f64 {
+        let r = bore_diameter_mm / 2.0;
+        let half_w = self.width_mm / 2.0;
+        if half_w >= r {
+            // The slot is wider than the bore: everything from the centre out
+            // is material once past the circle. Not a valid keyway, so this
+            // only keeps the estimate honest if one slips through.
+            return self.width_mm * (r + self.depth_mm);
+        }
+        let x_c = (r * r - half_w * half_w).sqrt();
+        let f = |x: f64| x * (r * r - x * x).sqrt() / 2.0 + r * r * (x / r).asin() / 2.0;
+        // From x_c to r: w·(r − x_c) minus twice the circle area the strip
+        // covers; from r to r + d: the plain w·d rectangle.
+        self.width_mm * (r - x_c) - 2.0 * (f(r) - f(x_c)) + self.width_mm * self.depth_mm
+    }
 }
 
 impl GearSpec {
@@ -235,12 +278,17 @@ fn sample_outline(spec: &GearSpec, arcs_per_arc: usize) -> Vec<[f64; 2]> {
 }
 
 /// The extruded volume the plugin's commands should produce: the profile minus
-/// the bore, times the face width. An estimate: the flanks are polylines.
+/// the bore, times the face width, minus what the keyway slot cuts. An
+/// estimate: the flanks are polylines.
 pub fn volume_estimate(spec: &GearSpec) -> f64 {
     let bore_area = if spec.bore_diameter_mm > 0.0 {
         PI * (spec.bore_diameter_mm / 2.0).powi(2)
     } else {
         0.0
     };
-    (profile_area(spec) - bore_area) * spec.thickness_mm
+    let keyway = spec
+        .keyway
+        .map(|k| k.area_outside_bore(spec.bore_diameter_mm))
+        .unwrap_or(0.0);
+    (profile_area(spec) - bore_area - keyway) * spec.thickness_mm
 }

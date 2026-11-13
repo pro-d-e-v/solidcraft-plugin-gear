@@ -120,6 +120,11 @@ fn main() {
                 .parse::<i64>()
                 .map(Value::from)
                 .or_else(|_| value.parse::<f64>().map(Value::from))
+                .or_else(|_| match value.trim().to_ascii_lowercase().as_str() {
+                    "true" => Ok(Value::Bool(true)),
+                    "false" => Ok(Value::Bool(false)),
+                    _ => Err(()),
+                })
                 .unwrap_or(Value::String(value.to_string()));
             params.insert(key.to_string(), value);
         }
