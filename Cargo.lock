@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "solidcraft-plugin-gear"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "craft-plugin",
  "craft-plugin-wasm",

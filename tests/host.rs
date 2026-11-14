@@ -20,7 +20,6 @@ use serde_json::{json, Value};
 
 /// The exact commands the plugin emits; the static manifest lists them all.
 const COMMANDS: &[&str] = &[
-    "sketch.arc.center_point",
     "sketch.circle.center",
     "sketch.create",
     "sketch.finish",
@@ -169,7 +168,7 @@ fn the_keyway_cut_runs_after_the_gear() {
         &params,
     );
     let summary = result.unwrap_or_else(|e| panic!("the run failed: {e:?}"));
-    assert_eq!(summary["commands_run"], 88);
+    assert_eq!(summary["commands_run"], 9);
     assert_eq!(summary["keyway"]["width_mm"], 4.0);
     assert_eq!(summary["keyway"]["angle_deg"], 30.0);
 
@@ -180,7 +179,7 @@ fn the_keyway_cut_runs_after_the_gear() {
     let slot = &ran[ran.len() - 3];
     assert_eq!(slot.0, "sketch.line");
     let points = slot.1["points"].as_array().expect("points");
-    assert_eq!(points.len(), 5);
+    assert_eq!(points.len(), 4);
     assert_eq!(ran[ran.len() - 2].0, "sketch.finish");
     let cut = &ran[ran.len() - 1];
     assert_eq!(cut.0, "solid.extrude");
@@ -194,7 +193,7 @@ fn the_keyway_cut_runs_after_the_gear() {
 fn the_merged_host_accepts_the_static_manifest() {
     let manifest = parsed_manifest();
     assert_eq!(manifest.id, "gear-generator");
-    assert_eq!(manifest.version, "0.3.0");
+    assert_eq!(manifest.version, "0.4.0");
     assert_eq!(manifest.capabilities, vec!["commands@0.1".to_string()]);
     let runtime = manifest.runtime.expect("the manifest declares a runtime");
     assert_eq!(runtime.module, "gear-generator.wasm");
@@ -211,10 +210,11 @@ fn the_merged_host_accepts_the_static_manifest() {
             "{command} is not declared"
         );
     }
-    // Defaults: the package asks for no extra fuel, memory or time.
-    assert_eq!(runtime.limits.fuel, 10_000_000);
+    // The package asks for the budget a 200-tooth gear needs; the host
+    // ceilings are 100,000,000,000 fuel, 128 MiB and 30 s.
+    assert_eq!(runtime.limits.fuel, 500_000_000);
     assert_eq!(runtime.limits.memory_mib, 64);
-    assert_eq!(runtime.limits.deadline_ms, 5000);
+    assert_eq!(runtime.limits.deadline_ms, 30_000);
     // No permissions are requested at all.
     assert!(runtime.permissions.files.is_empty());
     assert!(!runtime.permissions.clock);
@@ -233,13 +233,13 @@ fn the_merged_host_runs_the_component_end_to_end() {
     );
     let summary = result.unwrap_or_else(|e| panic!("the run failed: {e:?}"));
     assert_eq!(summary["ok"], true);
-    assert_eq!(summary["commands_run"], 84); // 1 + 4*20 + bore + finish + extrude
+    assert_eq!(summary["commands_run"], 5); // create, line, circle, finish, extrude
     assert_eq!(summary["tip_diameter_mm"], 44.0);
     assert_eq!(summary["bbox_mm"]["max"][2], 8.0);
 
     // The host saw the whole emission and committed the transaction.
     let ran: Vec<&(String, Value)> = host.commands.iter().collect();
-    assert_eq!(ran.len(), 84);
+    assert_eq!(ran.len(), 5);
     assert_eq!(ran[0].0, "sketch.create");
     assert_eq!(ran.last().unwrap().0, "solid.extrude");
     assert!(host.committed);
@@ -250,9 +250,10 @@ fn the_merged_host_runs_the_component_end_to_end() {
         .any(|(c, a)| c == "sketch.circle.center" && a["diameter"] == 8.0));
     // The tooth profile is on the XY plane.
     assert_eq!(ran[0].1["plane"], "XY");
-    // A flank polyline runs through its points in one call.
-    let flank = ran.iter().find(|(c, _)| c == "sketch.line").unwrap();
-    assert_eq!(flank.1["points"].as_array().unwrap().len(), 14); // radial piece + 12-segment involute
+    // The whole outline runs through one closed line: 30 points per tooth.
+    let outline = ran.iter().find(|(c, _)| c == "sketch.line").unwrap();
+    assert_eq!(outline.1["points"].as_array().unwrap().len(), 600);
+    assert_eq!(outline.1["closed"], true);
 }
 
 #[test]
@@ -320,13 +321,13 @@ fn a_failed_engine_command_names_the_plugin_step_and_rolls_back() {
             // A failed `run` surfaces verbatim: the runtime reports the host's
             // own error for the failed command and rolls the transaction back,
             // whatever the guest then returns.
-            assert_eq!(command, "sketch.line");
+            assert_eq!(command, "sketch.circle.center");
             assert!(reason.contains("the sketch is locked"), "{reason}");
         }
         other => panic!("expected CommandFailed, got {other:?}"),
     }
     // The host saw only the commands before the failure.
-    assert_eq!(host.run_calls, 3); // sketch.create, flank 1, the failed flank 2
+    assert_eq!(host.run_calls, 3); // sketch.create, sketch.line, the failed circle
     assert!(host.rolled_back);
     assert!(!host.committed);
 }

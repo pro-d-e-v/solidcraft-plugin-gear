@@ -11,16 +11,17 @@ SolidCraft host serves: world `craft:plugin@0.1.0`, capability
 [RFC 0002](https://github.com/tangency-labs/solidcraft/blob/main/docs/rfcs/0002-plugins.md),
 merged in [#15112](https://github.com/tangency-labs/solidcraft/pull/15112)). It
 changes the model only through the engine commands the app already serves over
-MCP (`sketch.line`, `sketch.arc.center_point`, `sketch.circle.center`,
-`solid.extrude`), so every edit is undoable and journaled, and a design the
-plugin made **opens without the plugin installed**.
+MCP (`sketch.line`, `sketch.circle.center`, `solid.extrude`), so every edit is
+undoable and journaled, and a design the plugin made **opens without the plugin
+installed**.
 
 ## Status
 
-SolidCraft 0.41.0 ships the phase 1 wasm host (PR #15112), and this plugin runs
-in it: install the release zip, and **Plugins › Создать шестерню…** opens the
-parameter dialog. The plugin's static manifest is parsed by `craft-plugin`, and
-the tests run the component through the real `craft-plugin-wasm` sandbox (fresh
+SolidCraft 0.41.0 ships the phase 1 wasm host (PR #15112), and this plugin
+(version 0.4.0) runs in it: install the release zip, and
+**Plugins › Создать шестерню…** opens the parameter dialog. The plugin's static
+manifest is parsed by `craft-plugin`, and the tests run the component through
+the real `craft-plugin-wasm` sandbox (fresh
 instance, fuel, transaction commit and rollback). The geometry and the emitted
 commands are verified against the current engine through its MCP surface.
 
@@ -85,9 +86,12 @@ plugin id is the same.
 | `name` | 1 – 64 chars | `Gear` | Name of the sketch, the extrude and the body |
 
 The gear is centred on the origin on the XY plane and extruded towards +Z.
-Above the root circle each flank is a 12-piece involute approximation; below
+Above the base circle each flank is a piecewise involute approximation; below
 the base circle (gears under about 17 teeth) it is a straight radial line, the
-standard simplified profile. Root fillets and undercut trimming are not modelled.
+standard simplified profile. The number of pieces falls as the tooth count
+rises (10 per flank up to 90 teeth, 7 up to 150, 5 above), keeping the whole
+outline near 3000 points so that a 200-tooth gear still builds inside the
+plugin deadline. Root fillets and undercut trimming are not modelled.
 
 The keyway is a rectangle from the bore's centre out to `bore radius + depth`,
 `width` wide, rotated by `keyway_angle`, cut through the whole face width. The
@@ -96,14 +100,16 @@ design.
 
 ## What the plugin emits
 
-One `sketch.create`, then per tooth: the two flanks as polylines, the tip arc on
-the tip circle and the root arc on the root circle, then the bore circle, then
-`sketch.finish` and one `solid.extrude`. For 20 teeth that is 84 engine
-commands in one undo step. With the keyway on, four more follow: a second
-sketch, the closed slot rectangle, `sketch.finish` and a cut-through-all
-extrude. The summary the plugin returns carries the pitch, tip and root
-diameters, the keyway, a volume estimate and the bounding box, so an agent or
-the host can check the result with `measure`.
+One `sketch.create`, one closed `sketch.line` holding the entire gear outline
+as a single polyline, the bore as `sketch.circle.center`, `sketch.finish` and
+one `solid.extrude` — five engine calls for any tooth count, so 200 teeth cost
+no more host calls than 6. The extrude does not name profiles, so the bore is
+the outline's hole. With the keyway on, four more follow: a second sketch, the
+closed slot rectangle, `sketch.finish` and a cut-through-all extrude. The
+manifest asks for 500,000,000 fuel, 64 MiB and a 30-second deadline, all within
+the host's ceilings. The summary the plugin returns carries the tooth count,
+module, pressure angle, pitch/base/tip/root diameters, thickness, bore, keyway,
+name, a volume estimate, the bounding box and the number of commands run.
 
 ## Build from source
 

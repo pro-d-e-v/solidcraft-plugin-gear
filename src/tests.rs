@@ -3,7 +3,7 @@
 
 use crate::commands::build_commands;
 use crate::contract::GearInput;
-use crate::gear::{outline, profile_area, volume_estimate, GearSpec, KeywaySpec, Piece};
+use crate::gear::{outline, volume_estimate, GearSpec, KeywaySpec};
 use core::f64::consts::PI;
 use serde_json::json;
 
@@ -17,124 +17,6 @@ fn default_spec() -> GearSpec {
         keyway: None,
         name: "Gear".to_string(),
     }
-}
-
-/// Every flank point sits between the root and tip radii, and the tooth narrows
-/// towards the tip: the half width at the pitch circle is pi*m/4 there.
-#[test]
-fn flank_widths_shrink_from_root_to_tip() {
-    let spec = default_spec();
-    let (_r_base, r_tip, r_root) = (spec.base_radius(), spec.tip_radius(), spec.root_radius());
-
-    // The outline crosses the pitch circle exactly on the tooth centre line's
-    // offset pi*m/4 / r_pitch: check by finding the flank radius at the angle
-    // closest to the pitch crossing instead: every flank point's radius is in
-    // range, and the widest point is at the root side, the narrowest at the tip.
-    let mut radii = Vec::new();
-    for piece in outline(&spec) {
-        if let Piece::Polyline { points } = piece {
-            for point in &points {
-                radii.push(point[0].hypot(point[1]));
-            }
-        }
-    }
-    assert!(
-        radii
-            .iter()
-            .all(|r| *r >= r_root - 1.0e-9 && *r <= r_tip + 1.0e-9),
-        "flank points leave [{r_root}, {r_tip}]: min {:?} max {:?}",
-        radii.iter().cloned().fold(f64::INFINITY, f64::min),
-        radii.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-    );
-}
-
-/// The tooth's angular width at the pitch circle is the standard half
-/// thickness: (pi*m/4) / r_pitch = pi/z.
-#[test]
-fn tooth_width_at_pitch_matches_the_standard() {
-    let spec = default_spec();
-    let z = spec.teeth as f64;
-    let r_pitch = spec.pitch_radius();
-    let r_base = spec.base_radius();
-    let alpha = spec.pressure_angle_rad();
-
-    // Walk the outline points; collect pairs that straddle the pitch radius on
-    // one flank (radius in (r_base, r_tip)) and measure the angular width there
-    // via the involute relation: at radius r the flank angle offset from the
-    // tooth centre is pitch_half + inv_offset - (t - atan(t)).
-    let pitch_half = PI / (2.0 * z);
-    let inv_offset = alpha.tan() - alpha;
-    // At the pitch circle, t = tan(alpha), so the offset is exactly pitch_half.
-    let offset_at = |r: f64| {
-        let t = ((r / r_base).powi(2) - 1.0).sqrt();
-        pitch_half + inv_offset - (t - t.atan())
-    };
-    assert!((offset_at(r_pitch) - pitch_half).abs() < 1.0e-12);
-    // The tooth centre line is at the offset's mirror: half angular width.
-    assert!((offset_at(r_pitch) * 2.0 - PI / z).abs() < 1.0e-12);
-}
-
-/// The outline closes: consecutive segments share an endpoint, and the last
-/// segment ends where the first begins.
-#[test]
-fn outline_is_closed() {
-    for spec in [default_spec(), small_gear(), big_gear()] {
-        let segments = outline(&spec);
-        assert_eq!(segments.len(), 4 * spec.teeth as usize);
-        let ends = |s: &Piece| match s {
-            Piece::Polyline { points } => *points.last().unwrap(),
-            Piece::Arc { to, .. } => *to,
-        };
-        let starts = |s: &Piece| match s {
-            Piece::Polyline { points } => *points.first().unwrap(),
-            Piece::Arc { from, .. } => *from,
-        };
-        for (i, segment) in segments.iter().enumerate() {
-            let next = &segments[(i + 1) % segments.len()];
-            let a = ends(segment);
-            let b = starts(next);
-            assert!(
-                (a[0] - b[0]).abs() < 1.0e-9 && (a[1] - b[1]).abs() < 1.0e-9,
-                "segments {i} and {} do not meet: {a:?} vs {b:?}",
-                (i + 1) % segments.len()
-            );
-        }
-    }
-}
-
-/// Volume estimate against the values the real engine reported for this exact
-/// gear (see the README's development section): the measured volume was
-/// 9404.11 mm^3, and the fine analytic area gives 9411.04 mm^3.
-#[test]
-fn volume_estimate_matches_the_engine_measured_gear() {
-    let spec = default_spec();
-    let estimated = volume_estimate(&spec);
-    assert!(
-        (estimated - 9411.04).abs() / 9411.04 < 0.005,
-        "estimate {estimated}"
-    );
-    // The engine measured 9404.11; the estimate must sit within 1% of that too.
-    assert!(
-        (estimated - 9404.11).abs() / 9404.11 < 0.01,
-        "estimate {estimated}"
-    );
-}
-
-/// A large gear where the root circle is above the base circle: the flanks are
-/// involutes the whole way, no radial root piece.
-#[test]
-fn big_gear_root_above_base_circle() {
-    let spec = big_gear();
-    assert!(spec.root_radius() > spec.base_radius());
-    let area = profile_area(&spec);
-    // The engine measured 45058.09 mm^3 for this gear (T = 4, bore 5); the fine
-    // analytic estimate was 45056.95.
-    let estimated = volume_estimate(&spec);
-    assert!(
-        (estimated - 45057.0).abs() / 45057.0 < 0.005,
-        "estimate {estimated}"
-    );
-    assert!(area > PI * spec.root_radius().powi(2));
 }
 
 fn small_gear() -> GearSpec {
@@ -156,32 +38,181 @@ fn big_gear() -> GearSpec {
     }
 }
 
-/// The command list starts with the sketch, ends with the extrude, holds the
-/// bore circle, and every coordinate is finite and inside the tip circle.
+/// The standard radii: pitch m·z/2, tip +m, root −1.25m.
+#[test]
+fn diameters_are_standard() {
+    let spec = default_spec();
+    assert!((spec.pitch_radius() - 20.0).abs() < 1.0e-12);
+    assert!((spec.tip_radius() - 22.0).abs() < 1.0e-12);
+    assert!((spec.root_radius() - 17.5).abs() < 1.0e-12);
+    assert!((spec.base_radius() - 20.0 * 20.0f64.to_radians().cos()).abs() < 1.0e-12);
+}
+
+/// Every outline point sits between the root and tip radii, and the point
+/// count follows the adaptive schedule: 30 per tooth up to 90 teeth, 20 up to
+/// 150 and 16 above that.
+#[test]
+fn outline_stays_between_root_and_tip() {
+    for (teeth, per_tooth) in [
+        (6u32, 30usize),
+        (20, 30),
+        (90, 30),
+        (91, 20),
+        (150, 20),
+        (151, 16),
+        (200, 16),
+    ] {
+        let spec = GearSpec {
+            teeth,
+            ..default_spec()
+        };
+        let points = outline(&spec).unwrap();
+        assert_eq!(points.len(), teeth as usize * per_tooth);
+        assert!(points.len() <= 10_000, "z={teeth}: {} points", points.len());
+        for point in &points {
+            let radius = point[0].hypot(point[1]);
+            assert!(
+                radius >= spec.root_radius() - 1.0e-9 && radius <= spec.tip_radius() + 1.0e-9,
+                "z={teeth}: radius {radius}"
+            );
+            assert!(point[0].is_finite() && point[1].is_finite());
+        }
+    }
+}
+
+/// The whole outline is one closed loop, so the command list does not grow
+/// with the tooth count.
+#[test]
+fn one_line_command_holds_the_whole_outline() {
+    for teeth in [6u32, 20, 100, 200] {
+        let spec = GearSpec {
+            teeth,
+            ..default_spec()
+        };
+        let commands = build_commands(&spec).unwrap();
+        assert_eq!(commands.len(), 5, "z={teeth}");
+        assert_eq!(commands[1]["command"], "sketch.line");
+        assert_eq!(commands[1]["params"]["closed"], true);
+        assert_eq!(commands[1]["params"]["connect"], false);
+        let points = commands[1]["params"]["points"].as_array().unwrap();
+        assert_eq!(points.len(), outline(&spec).unwrap().len());
+        assert!(points.len() <= 10_000);
+    }
+}
+
+/// Volume estimate against the values the real engine reported for this exact
+/// gear: 9403 mm^3 for 20 teeth, module 2, thickness 8 and an 8 mm bore.
+#[test]
+fn volume_estimate_matches_the_engine_measured_gear() {
+    let estimated = volume_estimate(&default_spec());
+    assert!(
+        (estimated - 9403.0).abs() / 9403.0 < 0.01,
+        "estimate {estimated}"
+    );
+}
+
+/// A large gear where the root circle is above the base circle and the flanks
+/// are involutes the whole way. The engine measured 45058.09 mm^3 for this
+/// gear; the polyline estimate stays within a per cent.
+#[test]
+fn volume_estimate_matches_the_engine_measured_big_gear() {
+    let spec = big_gear();
+    assert!(spec.root_radius() > spec.base_radius());
+    let estimated = volume_estimate(&spec);
+    assert!(
+        (estimated - 45058.09).abs() / 45058.09 < 0.01,
+        "estimate {estimated}"
+    );
+}
+
+/// The widest gear the schema allows: 200 teeth cost one line command and the
+/// estimate matches the engine's 1,003,594 mm^3.
+#[test]
+fn volume_estimate_matches_the_engine_measured_200_tooth_gear() {
+    let spec = GearSpec {
+        teeth: 200,
+        ..default_spec()
+    };
+    let estimated = volume_estimate(&spec);
+    assert!(
+        (estimated - 1_003_594.0).abs() / 1_003_594.0 < 0.01,
+        "estimate {estimated}"
+    );
+}
+
+/// The command list starts with the sketch and ends with the extrude; the
+/// line carries the bore, and the extrude names no profiles, so the circle
+/// inside the outline is its hole.
 #[test]
 fn command_list_shape() {
-    let spec = small_gear(); // 8 teeth, no bore
-    let commands = build_commands(&spec);
-    assert_eq!(commands.first().unwrap()["command"], "sketch.create");
-    assert_eq!(commands.last().unwrap()["command"], "solid.extrude");
-    // 4 steps per tooth (two flanks, tip arc, root arc) + create + finish + extrude.
-    assert_eq!(commands.len(), 1 + 4 * spec.teeth as usize + 2);
-    let text = serde_json::to_string(&commands).unwrap();
-    assert!(!text.contains("null"), "a coordinate was missing: {text}");
-    assert!(!text.contains("NaN"), "a coordinate was not a number");
-    // No bore in this one.
+    let spec = default_spec(); // with a bore
+    let commands = build_commands(&spec).unwrap();
+    assert_eq!(commands.len(), 5);
+    assert_eq!(commands[0]["command"], "sketch.create");
+    assert_eq!(commands[1]["command"], "sketch.line");
+    assert_eq!(commands[2]["command"], "sketch.circle.center");
+    assert_eq!(commands[2]["params"]["diameter"], 8.0);
+    assert_eq!(commands[3]["command"], "sketch.finish");
+    let extrude = &commands[4];
+    assert_eq!(extrude["command"], "solid.extrude");
+    assert!(
+        extrude["params"].get("profiles").is_none(),
+        "`profiles` must stay out so the bore is a hole: {}",
+        extrude["params"]
+    );
+
+    let no_bore = GearSpec {
+        bore_diameter_mm: 0.0,
+        ..default_spec()
+    };
+    let commands = build_commands(&no_bore).unwrap();
+    assert_eq!(commands.len(), 4);
     assert!(!commands
         .iter()
         .any(|c| c["command"] == "sketch.circle.center"));
 
-    let spec = default_spec(); // with a bore
-    let commands = build_commands(&spec);
-    assert_eq!(commands.len(), 1 + 4 * spec.teeth as usize + 3);
-    let bore = commands
-        .iter()
-        .find(|c| c["command"] == "sketch.circle.center")
-        .expect("the bore circle is missing");
-    assert_eq!(bore["params"]["diameter"], 8.0);
+    let text = serde_json::to_string(&commands).unwrap();
+    assert!(!text.contains("null"), "a coordinate was missing: {text}");
+    assert!(!text.contains("NaN"), "a coordinate was not a number");
+}
+
+/// The keyway's extra commands: a sketch, the closed slot rectangle, a finish
+/// and a cut-through-all extrude naming only the gear body.
+#[test]
+fn keyway_commands_shape() {
+    let mut spec = default_spec();
+    spec.keyway = Some(KeywaySpec {
+        width_mm: 4.0,
+        depth_mm: 2.0,
+        angle_deg: 30.0,
+    });
+    let commands = build_commands(&spec).unwrap();
+    assert_eq!(commands.len(), 9);
+
+    assert_eq!(commands[5]["command"], "sketch.create");
+    let slot = &commands[6];
+    assert_eq!(slot["command"], "sketch.line");
+    assert_eq!(slot["params"]["closed"], true);
+    let points = slot["params"]["points"].as_array().expect("points");
+    assert_eq!(points.len(), 4);
+
+    // The second corner sits at bore radius + depth, half a width below the
+    // centre line, rotated 30°.
+    let far = 4.0 + 2.0;
+    let angle = 30.0f64.to_radians();
+    let (s, c) = angle.sin_cos();
+    let expected = [far * c - (-2.0) * s, far * s + (-2.0) * c];
+    let second = points[1].as_array().unwrap();
+    assert!((second[0].as_f64().unwrap() - expected[0]).abs() < 1.0e-5);
+    assert!((second[1].as_f64().unwrap() - expected[1]).abs() < 1.0e-5);
+
+    assert_eq!(commands[7]["command"], "sketch.finish");
+    let cut = &commands[8];
+    assert_eq!(cut["command"], "solid.extrude");
+    assert_eq!(cut["params"]["operation"], "cut");
+    assert_eq!(cut["params"]["through_all"], true);
+    assert_eq!(cut["params"]["targets"], json!(["Gear"]));
+    assert!(cut["params"].get("profiles").is_none());
 }
 
 /// Invalid inputs are refused with readable messages.
@@ -233,8 +264,13 @@ fn validation_refuses_bad_inputs() {
         "the name must be 1 to 64 characters"
     );
 
-    // A good input round-trips.
+    // A good input round-trips; Cyrillic names are allowed.
     assert!(base.validate().is_ok());
+    let cyrillic = GearInput {
+        name: "Шестерня 1".to_string(),
+        ..base
+    };
+    assert_eq!(cyrillic.validate().unwrap().name, "Шестерня 1");
 }
 
 /// The strip integral the keyway estimate uses, checked against a direct
@@ -268,10 +304,11 @@ fn keyway_area_matches_the_numeric_strip_integral() {
     );
 }
 
-/// With the keyway off, the command list and the volume stay exactly as they
-/// were in 0.2.0.
+/// With the keyway on, the volume drops by the slot outside the bore; the
+/// slot is about 4 mm wide and 2 mm deep past the circle edge, times the
+/// 8 mm thickness: roughly 80 mm³, well under the gear's ~9400 mm³.
 #[test]
-fn keyway_off_changes_nothing() {
+fn keyway_removes_the_slot_volume() {
     let mut with = default_spec();
     with.keyway = Some(KeywaySpec {
         width_mm: 4.0,
@@ -279,52 +316,8 @@ fn keyway_off_changes_nothing() {
         angle_deg: 0.0,
     });
     let without = default_spec();
-    assert!(without.keyway.is_none());
-    assert_eq!(
-        build_commands(&with).len(),
-        build_commands(&without).len() + 4
-    );
-
-    let base = volume_estimate(&without);
-    let removed = base - volume_estimate(&with);
-    // The slot is about 4 mm wide and 2 mm deep past the circle edge, times
-    // the 8 mm thickness: roughly 80 mm³, well under the gear's ~9400 mm³.
+    let removed = volume_estimate(&without) - volume_estimate(&with);
     assert!(removed > 40.0 && removed < 120.0, "removed {removed}");
-}
-
-/// The keyway's extra commands: a sketch, the closed slot rectangle, a
-/// finish and a cut-through-all extrude.
-#[test]
-fn keyway_commands_shape() {
-    let mut spec = default_spec();
-    spec.keyway = Some(KeywaySpec {
-        width_mm: 4.0,
-        depth_mm: 2.0,
-        angle_deg: 30.0,
-    });
-    let commands = build_commands(&spec);
-    assert_eq!(commands.len(), 84 + 4);
-
-    // The slot's second corner sits at bore radius + depth, half a width
-    // below the centre line, rotated 30°.
-    let slot = &commands[84 + 1];
-    assert_eq!(slot["command"], "sketch.line");
-    let points = slot["params"]["points"].as_array().expect("points");
-    assert_eq!(points.len(), 5); // four corners, closed
-    let far = 4.0 + 2.0;
-    let angle = 30.0f64.to_radians();
-    let (s, c) = angle.sin_cos();
-    let expected = [far * c - (-2.0) * s, far * s + (-2.0) * c];
-    let second = points[1].as_array().unwrap();
-    assert!((second[0].as_f64().unwrap() - expected[0]).abs() < 1.0e-5);
-    assert!((second[1].as_f64().unwrap() - expected[1]).abs() < 1.0e-5);
-
-    // The cut goes through everything, and only through the gear's body.
-    let cut = commands.last().unwrap();
-    assert_eq!(cut["command"], "solid.extrude");
-    assert_eq!(cut["params"]["operation"], "cut");
-    assert_eq!(cut["params"]["through_all"], true);
-    assert_eq!(cut["params"]["targets"], json!(["Gear"]));
 }
 
 #[test]
@@ -378,10 +371,18 @@ fn validation_refuses_broken_keyways() {
     // A wild angle.
     let bad_angle = GearInput {
         keyway_angle: 500.0,
-        ..base.clone()
+        ..base
     };
-    assert!(bad_angle
-        .validate()
-        .unwrap_err()
-        .contains("`keyway_angle` must be between -360 and 360"));
+    assert!(bad_angle.validate().unwrap_err().contains("keyway_angle"));
+}
+
+/// The default gear's outline area is the pitch disc plus the teeth' extra
+/// area minus the gaps: it is larger than the root disc and smaller than the
+/// tip disc.
+#[test]
+fn profile_area_lies_between_the_root_and_tip_discs() {
+    let spec = default_spec();
+    let area = crate::gear::profile_area(&spec);
+    assert!(area > PI * spec.root_radius().powi(2));
+    assert!(area < PI * spec.tip_radius().powi(2));
 }

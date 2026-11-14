@@ -99,7 +99,12 @@ mod bindings {
                 ),
             );
 
-            let command_list = commands::build_commands(&spec);
+            let command_list = commands::build_commands(&spec).map_err(|reason| {
+                PluginError::InvalidInput(FieldFailure {
+                    field: "params".to_string(),
+                    reason,
+                })
+            })?;
             let count = command_list.len();
             for (index, command) in command_list.iter().enumerate() {
                 // A cancelled run fails the call; the host rolls the
@@ -121,7 +126,7 @@ mod bindings {
                 if index % 16 == 0 || index + 1 == count {
                     craft::plugin::control::progress(
                         index as f32 / count.max(1) as f32,
-                        &format!("gear tooth sketch {index} of {count}"),
+                        &format!("building the gear, step {index} of {count}"),
                     );
                 }
             }

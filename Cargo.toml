@@ -1,6 +1,6 @@
 [package]
 name = "solidcraft-plugin-gear"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT"
 description = "A SolidCraft plugin: a parametric involute spur gear generator that emits native engine commands"

@@ -176,18 +176,10 @@ impl GearInput {
                 return Err("`keyway_angle` must be between -360 and 360 degrees".to_string());
             }
         }
-        if spec.name.is_empty() || spec.name.len() > 64 {
+        // Any characters are fine, Cyrillic included: the host draws the name
+        // in its own UI and the engine's feature names accept Unicode.
+        if spec.name.is_empty() || spec.name.chars().count() > 64 {
             return Err("the name must be 1 to 64 characters".to_string());
-        }
-        if !spec
-            .name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == ' ')
-        {
-            return Err(
-                "the name may hold only letters, digits, spaces, underscores and hyphens"
-                    .to_string(),
-            );
         }
         // The bore must leave a rim: its radius stays under the root radius
         // minus half a module.

@@ -1,7 +1,7 @@
 {
   "id": "gear-generator",
   "name": "Генератор шестерён",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Создаёт эвольвентную цилиндрическую шестерню в начале координат: обычный эскиз и выдавливание, дизайн открывается без плагина.",
   "capabilities": ["commands@0.1"],
   "runtime": {
@@ -30,12 +30,16 @@
       }
     ],
     "commands": [
-      "sketch.arc.center_point",
       "sketch.circle.center",
       "sketch.create",
       "sketch.finish",
       "sketch.line",
       "solid.extrude"
-    ]
+    ],
+    "limits": {
+      "fuel": 500000000,
+      "memory_mib": 64,
+      "deadline_ms": 30000
+    }
   }
 }
