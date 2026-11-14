@@ -70,6 +70,13 @@ features in the timeline, fully undoable. `solidcraft-cli snapshot --in gear.sc
 Installing a newer version over an older one asks for confirmation, because the
 plugin id is the same.
 
+The one line **Install plugin… → `pro-d-e-v/solidcraft-plugin-gear`** will
+install the latest release once phase 4 of
+[RFC 0002](https://github.com/tangency-labs/solidcraft/blob/main/docs/rfcs/0002-plugins.md)
+lands (install from a GitHub release, proposed in
+[#1221](https://github.com/tangency-labs/solidcraft/issues/1221#issuecomment-6862497847));
+it is not in SolidCraft 0.41.0, so the steps above are the way in today.
+
 ## Parameters
 
 | Parameter | Range | Default | Meaning |
